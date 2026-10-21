@@ -48,15 +48,33 @@ class StremioApiTest {
         assertEquals("https://example.org/manifest.json", collection.addons.single().transportUrl)
     }
 
-    @Test fun installsOrRefreshesAddonThroughCollectionAddFromUrlContract() = runBlocking {
+    @Test fun installsAddonByFetchingManifestWritingDescriptorAndVerifyingCollection() = runBlocking {
+        val manifestUrl = server.url("/manifest.json").toString()
+        server.enqueue(MockResponse().setBody("""{"id":"org.example.addon","name":"Example addon","version":"1.0.0","resources":["stream"],"types":["movie"]}"""))
         server.enqueue(MockResponse().setBody("""{"result":{"addons":[]}}"""))
-        api.addAddonFromUrl("session-123", "https://example.org/manifest.json")
-        val request = server.takeRequest()
-        assertEquals("/api/addonCollectionGet", request.path)
-        val body = JSONObject(request.body.readUtf8())
-        assertEquals("session-123", body.getString("authKey"))
-        assertTrue(body.getBoolean("update"))
-        assertEquals("https://example.org/manifest.json", body.getJSONArray("addFromURL").getString(0))
+        server.enqueue(MockResponse().setBody("""{"result":true}"""))
+        server.enqueue(MockResponse().setBody("""{"result":{"addons":[{"transportUrl":"$manifestUrl","manifest":{"id":"org.example.addon","name":"Example addon","version":"1.0.0"},"flags":{}}]}}"""))
+
+        val installed = api.addAddonFromUrl("session-123", manifestUrl)
+        val manifestRequest = server.takeRequest()
+        assertEquals("/manifest.json", manifestRequest.path)
+        assertEquals("GET", manifestRequest.method)
+
+        val readRequest = server.takeRequest()
+        assertEquals("/api/addonCollectionGet", readRequest.path)
+        val readBody = JSONObject(readRequest.body.readUtf8())
+        assertEquals("session-123", readBody.getString("authKey"))
+
+        val writeRequest = server.takeRequest()
+        assertEquals("/api/addonCollectionSet", writeRequest.path)
+        val writeBody = JSONObject(writeRequest.body.readUtf8())
+        val descriptor = writeBody.getJSONArray("addons").getJSONObject(0)
+        assertEquals(manifestUrl, descriptor.getString("transportUrl"))
+        assertEquals("org.example.addon", descriptor.getJSONObject("manifest").getString("id"))
+
+        val verifyRequest = server.takeRequest()
+        assertEquals("/api/addonCollectionGet", verifyRequest.path)
+        assertEquals("Example addon", installed.addons.single().name)
     }
 
     @Test fun writesWholeDescriptorCollectionWithoutDroppingFields() = runBlocking {
