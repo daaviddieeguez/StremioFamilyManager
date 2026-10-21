@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudSync
@@ -22,9 +23,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 private val Ink = Color(0xFF11131A)
 private val Panel = Color(0xFF1B1E28)
@@ -35,30 +39,33 @@ private val Mint = Color(0xFF66D9B3)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { StremioFamilyApp() }
+        setContent { StremioFamilyApp(AccountRepository(applicationContext)) }
     }
 }
 
-private data class AccountProfile(
-    val id: Int,
-    val name: String,
-    val email: String,
-    val selected: Boolean = true
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun StremioFamilyApp() {
-    var accounts by remember { mutableStateOf(listOf(
-        AccountProfile(1, "Mi cuenta", ""),
-        AccountProfile(2, "Padre", ""),
-        AccountProfile(3, "Madre", "")
-    )) }
-    var showAddDialog by remember { mutableStateOf(false) }
-    var newName by remember { mutableStateOf("") }
-    var newEmail by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf("Añade perfiles y selecciona a cuáles quieres aplicar los cambios.") }
-    val selectedCount = accounts.count { it.selected }
+private fun StremioFamilyApp(repository: AccountRepository) {
+    var accounts by remember { mutableStateOf(repository.accounts()) }
+    var selectedTargets by remember { mutableStateOf(emptySet<String>()) }
+    var sourceId by remember { mutableStateOf(accounts.firstOrNull()?.id.orEmpty()) }
+    var showLogin by remember { mutableStateOf(false) }
+    var showDisconnect by remember { mutableStateOf<SavedAccount?>(null) }
+    var preview by remember { mutableStateOf<SyncPreview?>(null) }
+    var details by remember { mutableStateOf<Pair<SavedAccount, AddonCollection>?>(null) }
+    var loginName by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var sourceMenu by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("Conecta tus cuentas de Stremio para consultar y sincronizar sus addons.") }
+    val scope = rememberCoroutineScope()
+
+    fun reloadAccounts() {
+        accounts = repository.accounts()
+        if (accounts.none { it.id == sourceId }) sourceId = accounts.firstOrNull()?.id.orEmpty()
+        selectedTargets = selectedTargets.intersect(accounts.map { it.id }.toSet())
+    }
 
     MaterialTheme(colorScheme = darkColorScheme(
         background = Ink, surface = Panel, primary = Purple,
@@ -78,8 +85,8 @@ private fun StremioFamilyApp() {
                 )
             },
             floatingActionButton = {
-                FloatingActionButton(onClick = { showAddDialog = true }, containerColor = Purple, contentColor = Ink) {
-                    Icon(Icons.Default.Add, contentDescription = "Añadir cuenta")
+                FloatingActionButton(onClick = { showLogin = true }, containerColor = Purple, contentColor = Ink) {
+                    Icon(Icons.Default.Add, contentDescription = "Conectar cuenta de Stremio")
                 }
             }
         ) { padding ->
@@ -98,26 +105,44 @@ private fun StremioFamilyApp() {
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text("Tus cuentas, en un solo sitio", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                                    Text("Gestiona los perfiles familiares", color = Muted, fontSize = 12.sp)
+                                    Text("${accounts.size} cuenta(s) conectada(s)", color = Muted, fontSize = 12.sp)
                                 }
                             }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                StatPill("${accounts.size}", "perfiles")
-                                StatPill("$selectedCount", "seleccionados")
+                            Text("Cuenta de origen", color = Muted, fontSize = 12.sp)
+                            Box {
+                                OutlinedButton(onClick = { sourceMenu = true }, enabled = accounts.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                                    Text(accounts.firstOrNull { it.id == sourceId }?.email ?: "Conecta una cuenta", modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("⌄")
+                                }
+                                DropdownMenu(expanded = sourceMenu, onDismissRequest = { sourceMenu = false }) {
+                                    accounts.forEach { account ->
+                                        DropdownMenuItem(text = { Text(account.email) }, onClick = { sourceId = account.id; sourceMenu = false })
+                                    }
+                                }
                             }
                             Button(
                                 onClick = {
-                                    message = "La sincronización remota aún no está disponible. No se ha iniciado sesión ni modificado ninguna cuenta de Stremio."
+                                    val targets = selectedTargets.filter { it != sourceId }
+                                    busy = true
+                                    scope.launch {
+                                        try {
+                                            preview = repository.preview(sourceId, targets)
+                                            message = "Vista previa lista. No se ha cambiado ninguna cuenta."
+                                        } catch (e: Exception) { message = e.message ?: "No se pudo consultar las listas de addons." }
+                                        finally { busy = false }
+                                    }
                                 },
+                                enabled = !busy && accounts.size > 1 && selectedTargets.any { it != sourceId },
                                 modifier = Modifier.fillMaxWidth().height(52.dp),
                                 shape = RoundedCornerShape(15.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = Purple, contentColor = Ink)
                             ) {
-                                Icon(Icons.Default.CloudSync, null)
+                                if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                else Icon(Icons.Default.CloudSync, null)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Sincronizar addons", fontWeight = FontWeight.Bold)
+                                Text("Previsualizar sincronización", fontWeight = FontWeight.Bold)
                             }
-                            Text("PROTOTIPO · NO MODIFICA CUENTAS REALES", color = Mint, fontSize = 10.sp, letterSpacing = .6.sp)
+                            Text("La vista previa no escribe nada. Aplicar reemplaza la lista completa de addons de cada destino.", color = Mint, fontSize = 11.sp)
                         }
                     }
                 }
@@ -126,36 +151,38 @@ private fun StremioFamilyApp() {
                         Icon(Icons.Default.PeopleAlt, null, tint = Purple)
                         Spacer(Modifier.width(8.dp))
                         Text("Cuentas familiares", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = {
-                            val allSelected = accounts.isNotEmpty() && accounts.all { it.selected }
-                            accounts = accounts.map { it.copy(selected = !allSelected) }
-                        }) { Text(if (accounts.isNotEmpty() && accounts.all { it.selected }) "Deseleccionar" else "Seleccionar todas") }
                     }
                 }
                 items(accounts, key = { it.id }) { account ->
                     Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(
-                                checked = account.selected,
-                                onCheckedChange = { value -> accounts = accounts.map { if (it.id == account.id) it.copy(selected = value) else it } },
-                                colors = CheckboxDefaults.colors(checkedColor = Purple, uncheckedColor = Muted)
-                            )
-                            Box(Modifier.size(42.dp).background(Color(0xFF2B2B42), CircleShape), contentAlignment = Alignment.Center) {
-                                Text(account.name.take(1).uppercase(), color = Purple, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(account.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(account.email.ifBlank { "Correo no configurado" }, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Extension, null, tint = Muted, modifier = Modifier.size(13.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Perfil local · no conectado", color = Muted, fontSize = 10.sp)
+                        Column(Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(
+                                    checked = account.id in selectedTargets,
+                                    enabled = account.id != sourceId,
+                                    onCheckedChange = { checked -> selectedTargets = if (checked) selectedTargets + account.id else selectedTargets - account.id },
+                                    colors = CheckboxDefaults.colors(checkedColor = Purple, uncheckedColor = Muted)
+                                )
+                                Box(Modifier.size(42.dp).background(Color(0xFF2B2B42), CircleShape), contentAlignment = Alignment.Center) {
+                                    Text(account.name.take(1).uppercase(), color = Purple, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                 }
-                            }
-                            IconButton(onClick = { accounts = accounts.filterNot { it.id == account.id } }) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = "Eliminar perfil", tint = Muted)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(account.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(account.email, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(if (account.id == sourceId) "Origen" else "Destino seleccionable", color = if (account.id == sourceId) Mint else Muted, fontSize = 10.sp)
+                                }
+                                IconButton(enabled = !busy, onClick = {
+                                    busy = true
+                                    scope.launch {
+                                        try { details = account to repository.refresh(account.id) }
+                                        catch (e: Exception) { message = e.message ?: "No se pudo leer la lista de addons." }
+                                        finally { busy = false }
+                                    }
+                                }) { Icon(Icons.Default.Extension, contentDescription = "Ver addons", tint = Purple) }
+                                IconButton(enabled = !busy, onClick = { showDisconnect = account }) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Desconectar cuenta", tint = Muted)
+                                }
                             }
                         }
                     }
@@ -166,51 +193,129 @@ private fun StremioFamilyApp() {
                             Icon(Icons.Default.Security, null, tint = Mint)
                             Spacer(Modifier.width(10.dp))
                             Column {
-                                Text("Privacidad primero", fontWeight = FontWeight.SemiBold, color = Mint)
-                                Text("Esta versión no pide ni almacena contraseñas. La autenticación real debe implementarse y verificarse antes de conectar cuentas.", color = Color(0xFFCBD5D7), fontSize = 12.sp)
+                                Text("Sesiones protegidas", fontWeight = FontWeight.SemiBold, color = Mint)
+                                Text("La contraseña solo se usa para iniciar sesión y no se guarda. El token de sesión se cifra con Android Keystore en este dispositivo.", color = Color(0xFFCBD5D7), fontSize = 12.sp)
                             }
                         }
                     }
                 }
                 item {
                     Text(message, color = Muted, fontSize = 12.sp)
-                    Text("Versión 0.1.0 · Prototipo de interfaz", color = Color(0xFF555B6C), fontSize = 11.sp)
+                    Text("Stremio Family Manager · beta", color = Color(0xFF555B6C), fontSize = 11.sp)
                 }
             }
         }
     }
 
-    if (showAddDialog) {
+    if (showLogin) {
         AlertDialog(
-            onDismissRequest = { showAddDialog = false },
-            title = { Text("Añadir perfil") },
+            onDismissRequest = { if (!busy) showLogin = false },
+            title = { Text("Conectar cuenta de Stremio") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(value = newName, onValueChange = { newName = it }, label = { Text("Nombre (p. ej. Hermana)") }, singleLine = true)
-                    OutlinedTextField(value = newEmail, onValueChange = { newEmail = it }, label = { Text("Correo de Stremio (opcional)") }, singleLine = true)
-                    Text("Se guarda únicamente como ficha local; no inicia sesión en Stremio.", color = Muted, fontSize = 12.sp)
+                    OutlinedTextField(value = loginName, onValueChange = { loginName = it }, label = { Text("Nombre para identificarla") }, singleLine = true, enabled = !busy)
+                    OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Correo") }, singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
+                    OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Contraseña de Stremio") }, singleLine = true, enabled = !busy, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+                    Text("La contraseña se envía directamente a la API de Stremio por HTTPS y no se guarda en el teléfono ni se muestra en registros.", color = Muted, fontSize = 12.sp)
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    if (newName.isNotBlank()) {
-                        accounts = accounts + AccountProfile((accounts.maxOfOrNull { it.id } ?: 0) + 1, newName.trim(), newEmail.trim())
-                        newName = ""; newEmail = ""; showAddDialog = false
+                TextButton(enabled = !busy && email.isNotBlank() && password.isNotBlank(), onClick = {
+                    val submittedEmail = email.trim()
+                    val submittedPassword = password
+                    val submittedName = loginName
+                    password = ""
+                    busy = true
+                    scope.launch {
+                        try {
+                            val account = repository.connect(submittedName, submittedEmail, submittedPassword)
+                            reloadAccounts()
+                            selectedTargets = selectedTargets + account.id
+                            if (sourceId.isBlank()) sourceId = account.id
+                            message = "Cuenta ${account.email} conectada."
+                            email = ""; loginName = ""; showLogin = false
+                        } catch (e: Exception) { message = e.message ?: "No se pudo iniciar sesión." }
+                        finally { busy = false }
                     }
-                }) { Text("Añadir") }
+                }) { Text(if (busy) "Conectando…" else "Iniciar sesión") }
             },
-            dismissButton = { TextButton(onClick = { showAddDialog = false }) { Text("Cancelar") } }
+            dismissButton = { TextButton(enabled = !busy, onClick = { showLogin = false; password = "" }) { Text("Cancelar") } }
         )
     }
-}
 
-@Composable
-private fun StatPill(number: String, label: String) {
-    Surface(color = Color(0xFF292D3A), shape = RoundedCornerShape(12.dp)) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(number, color = Purple, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            Spacer(Modifier.width(6.dp))
-            Text(label, color = Muted, fontSize = 12.sp)
-        }
+    showDisconnect?.let { account ->
+        AlertDialog(
+            onDismissRequest = { showDisconnect = null },
+            title = { Text("Desconectar cuenta") },
+            text = { Text("Se cerrará esta sesión en Stremio y se borrará su token guardado en este dispositivo. No se eliminarán los addons de la cuenta.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDisconnect = null; busy = true
+                    scope.launch {
+                        repository.disconnect(account.id)
+                        reloadAccounts()
+                        message = "Cuenta desconectada de este dispositivo."
+                        busy = false
+                    }
+                }) { Text("Desconectar") }
+            },
+            dismissButton = { TextButton(onClick = { showDisconnect = null }) { Text("Cancelar") } }
+        )
+    }
+
+    preview?.let { pending ->
+        AlertDialog(
+            onDismissRequest = { if (!busy) preview = null },
+            title = { Text("Revisar cambios") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Origen: ${pending.source.email}", fontWeight = FontWeight.SemiBold)
+                    Text("La operación reemplazará la lista completa de addons de estos destinos. Los addons que solo existan en un destino se quitarán.", color = Muted, fontSize = 13.sp)
+                    pending.targets.forEach { target ->
+                        Surface(color = Color(0xFF292D3A), shape = RoundedCornerShape(12.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(10.dp)) {
+                                Text(target.account.email, fontWeight = FontWeight.SemiBold)
+                                Text("Añadir: ${target.additions} · Quitar: ${target.removals} · Quedarán: ${pending.sourceAddons.size}", color = Muted, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !busy, onClick = {
+                    busy = true
+                    scope.launch {
+                        try {
+                            val results = repository.apply(pending)
+                            message = "Sincronización completada: ${results.size} cuenta(s) actualizada(s)."
+                            preview = null
+                        } catch (e: PartialSyncException) {
+                            message = "Se actualizaron ${e.completed.size} cuenta(s); se detuvo el proceso. ${e.cause?.message ?: "Error de red."}"
+                            preview = null
+                        } catch (e: Exception) { message = e.message ?: "No se pudo completar la sincronización." }
+                        finally { busy = false }
+                    }
+                }) { Text(if (busy) "Aplicando…" else "Aplicar a destinos") }
+            },
+            dismissButton = { TextButton(enabled = !busy, onClick = { preview = null }) { Text("Cancelar") } }
+        )
+    }
+
+    details?.let { (account, collection) ->
+        AlertDialog(
+            onDismissRequest = { details = null },
+            title = { Text("Addons · ${account.name}") },
+            text = {
+                if (collection.addons.isEmpty()) Text("Esta cuenta no devolvió addons instalados.")
+                else LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(collection.addons) { addon ->
+                        Surface(color = Color(0xFF292D3A), shape = RoundedCornerShape(10.dp)) {
+                            Text(addon.name.ifBlank { "Addon sin nombre" }, Modifier.fillMaxWidth().padding(10.dp), fontSize = 13.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { details = null }) { Text("Cerrar") } }
+        )
     }
 }
