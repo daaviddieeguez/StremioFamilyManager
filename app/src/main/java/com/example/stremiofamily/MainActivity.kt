@@ -50,9 +50,12 @@ private fun StremioFamilyApp(repository: AccountRepository) {
     var selectedTargets by remember { mutableStateOf(emptySet<String>()) }
     var sourceId by remember { mutableStateOf(accounts.firstOrNull()?.id.orEmpty()) }
     var showLogin by remember { mutableStateOf(false) }
+    var showAddAddon by remember { mutableStateOf(false) }
+    var addonUrl by remember { mutableStateOf("") }
     var showDisconnect by remember { mutableStateOf<SavedAccount?>(null) }
     var preview by remember { mutableStateOf<SyncPreview?>(null) }
     var details by remember { mutableStateOf<Pair<SavedAccount, AddonCollection>?>(null) }
+    var pendingRemove by remember { mutableStateOf<Pair<SavedAccount, AddonDescriptor>?>(null) }
     var loginName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -86,8 +89,8 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                 )
             },
             floatingActionButton = {
-                FloatingActionButton(onClick = { showLogin = true }, containerColor = Purple, contentColor = Ink) {
-                    Icon(Icons.Default.Add, contentDescription = "Conectar cuenta de Stremio")
+                FloatingActionButton(onClick = { if (accounts.isEmpty()) showLogin = true else showAddAddon = true }, containerColor = Purple, contentColor = Ink) {
+                    Icon(Icons.Default.Add, contentDescription = if (accounts.isEmpty()) "Conectar cuenta de Stremio" else "Añadir addon")
                 }
             }
         ) { padding ->
@@ -143,7 +146,12 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                                 Spacer(Modifier.width(8.dp))
                                 Text("Previsualizar sincronización", fontWeight = FontWeight.Bold)
                             }
-                            Text("La vista previa no escribe nada. Aplicar reemplaza la lista completa de addons de cada destino.", color = Mint, fontSize = 11.sp)
+                            if (accounts.isNotEmpty()) {
+                                OutlinedButton(onClick = { showAddAddon = true }, modifier = Modifier.fillMaxWidth(), enabled = !busy) {
+                                    Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Añadir addon por URL")
+                                }
+                            }
+                            Text("Añadir instala el manifiesto en esta cuenta. Sincronizar replica la lista completa y puede quitar addons exclusivos del destino.", color = Mint, fontSize = 11.sp)
                         }
                     }
                 }
@@ -206,6 +214,35 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                 }
             }
         }
+    }
+
+    if (showAddAddon) {
+        AlertDialog(
+            onDismissRequest = { if (!busy) showAddAddon = false },
+            title = { Text("Añadir o actualizar addon") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Pega la URL del manifiesto. Stremio la validará y añadirá a la cuenta seleccionada.", color = Muted, fontSize = 13.sp)
+                    OutlinedTextField(value = accounts.firstOrNull { it.id == sourceId }?.email.orEmpty(), onValueChange = {}, readOnly = true, label = { Text("Cuenta") }, enabled = accounts.isNotEmpty())
+                    OutlinedTextField(value = addonUrl, onValueChange = { addonUrl = it.trim() }, label = { Text("URL del manifiesto") }, placeholder = { Text("https://addon.example/manifest.json") }, singleLine = true, enabled = !busy)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !busy && accounts.isNotEmpty() && addonUrl.startsWith("http"), onClick = {
+                    busy = true
+                    scope.launch {
+                        try {
+                            val fresh = repository.addAddon(sourceId, addonUrl)
+                            details = (accounts.first { it.id == sourceId }) to fresh
+                            message = "Addon añadido o actualizado en ${accounts.first { it.id == sourceId }.email}."
+                            addonUrl = ""; showAddAddon = false
+                        } catch (e: Exception) { message = e.message ?: "No se pudo instalar el addon." }
+                        finally { busy = false }
+                    }
+                }) { Text(if (busy) "Instalando…" else "Instalar / actualizar") }
+            },
+            dismissButton = { TextButton(enabled = !busy, onClick = { showAddAddon = false }) { Text("Cancelar") } }
+        )
     }
 
     if (showLogin) {
@@ -316,13 +353,42 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                 if (collection.addons.isEmpty()) Text("Esta cuenta no devolvió addons instalados.")
                 else LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(collection.addons) { addon ->
-                        Surface(color = Color(0xFF292D3A), shape = RoundedCornerShape(10.dp)) {
-                            Text(addon.name.ifBlank { "Addon sin nombre" }, Modifier.fillMaxWidth().padding(10.dp), fontSize = 13.sp)
+                        Surface(color = Color(0xFF292D3A), shape = RoundedCornerShape(12.dp)) {
+                            Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
+                                    Text(addon.name.ifBlank { "Addon sin nombre" }, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(addon.transportUrl, color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                                IconButton(enabled = !busy, onClick = { pendingRemove = account to addon }) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Quitar addon", tint = Muted)
+                                }
+                            }
                         }
                     }
                 }
             },
             confirmButton = { TextButton(onClick = { details = null }) { Text("Cerrar") } }
+        )
+    }
+
+    pendingRemove?.let { (account, addon) ->
+        AlertDialog(
+            onDismissRequest = { if (!busy) pendingRemove = null },
+            title = { Text("Quitar ${addon.name}?") },
+            text = { Text("Se quitará de la lista de addons de ${account.email}. La acción no elimina ni modifica el addon en su servidor.", color = Muted) },
+            confirmButton = {
+                TextButton(enabled = !busy, onClick = {
+                    pendingRemove = null; busy = true
+                    scope.launch {
+                        try {
+                            details = account to repository.removeAddon(account.id, addon.transportUrl)
+                            message = "Addon quitado de ${account.email}."
+                        } catch (e: Exception) { message = e.message ?: "No se pudo quitar el addon." }
+                        finally { busy = false }
+                    }
+                }) { Text(if (busy) "Quitando…" else "Quitar addon") }
+            },
+            dismissButton = { TextButton(enabled = !busy, onClick = { pendingRemove = null }) { Text("Cancelar") } }
         )
     }
 }
