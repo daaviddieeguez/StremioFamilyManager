@@ -37,6 +37,21 @@ class AccountRepository(
     }
 
     suspend fun refresh(accountId: String): AddonCollection = api.getAddonCollection(requireToken(accountId))
+    suspend fun addAddon(accountId: String, manifestUrl: String): AddonCollection {
+        val token = requireToken(accountId)
+        api.addAddonFromUrl(token, manifestUrl)
+        return api.getAddonCollection(token)
+    }
+
+    /** Removes one descriptor; Stremio exposes collection writes as full-list replacement. */
+    suspend fun removeAddon(accountId: String, transportUrl: String): AddonCollection {
+        val token = requireToken(accountId)
+        val current = api.getAddonCollection(token).addons
+        val remaining = current.filterNot { it.transportUrl == transportUrl }
+        if (remaining.size == current.size) throw StremioApiException("Ese addon ya no está instalado.")
+        api.setAddonCollection(token, remaining)
+        return api.getAddonCollection(token)
+    }
 
     suspend fun preview(sourceId: String, targetIds: List<String>): SyncPreview {
         require(targetIds.isNotEmpty()) { "Selecciona al menos una cuenta de destino." }
