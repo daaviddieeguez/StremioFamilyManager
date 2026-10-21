@@ -16,12 +16,15 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.PeopleAlt
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -30,12 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
-private val Ink = Color(0xFF11131A)
-private val Panel = Color(0xFF1B1E28)
-private val Muted = Color(0xFF9CA3B5)
-private val Purple = Color(0xFF9B8AFB)
-private val Mint = Color(0xFF66D9B3)
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,13 +40,30 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Composable
+private fun SettingsInfo(icon: ImageVector, title: String, description: String, tint: Color) {
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(22.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, fontWeight = FontWeight.SemiBold)
+            Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, lineHeight = 18.sp)
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun StremioFamilyApp(repository: AccountRepository) {
+    val context = LocalContext.current
     var accounts by remember { mutableStateOf(repository.accounts()) }
     var selectedTargets by remember { mutableStateOf(emptySet<String>()) }
     var sourceId by remember { mutableStateOf(accounts.firstOrNull()?.id.orEmpty()) }
     var showLogin by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     var showAddAddon by remember { mutableStateOf(false) }
     var addonUrl by remember { mutableStateOf("") }
     var showDisconnect by remember { mutableStateOf<SavedAccount?>(null) }
@@ -62,6 +76,12 @@ private fun StremioFamilyApp(repository: AccountRepository) {
     var loginError by remember { mutableStateOf("") }
     var sourceMenu by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var darkTheme by remember { mutableStateOf(context.getSharedPreferences("preferences", 0).getBoolean("dark_theme", true)) }
+    val Ink = if (darkTheme) Color(0xFF11131A) else Color(0xFFF5F6FA)
+    val Panel = if (darkTheme) Color(0xFF1B1E28) else Color.White
+    val Muted = if (darkTheme) Color(0xFF9CA3B5) else Color(0xFF667085)
+    val Purple = if (darkTheme) Color(0xFFB3A6FF) else Color(0xFF6750A4)
+    val Mint = if (darkTheme) Color(0xFF66D9B3) else Color(0xFF087F68)
     var message by remember { mutableStateOf("Conecta tus cuentas de Stremio para consultar y sincronizar sus addons.") }
     val scope = rememberCoroutineScope()
 
@@ -71,9 +91,12 @@ private fun StremioFamilyApp(repository: AccountRepository) {
         selectedTargets = selectedTargets.intersect(accounts.map { it.id }.toSet())
     }
 
-    MaterialTheme(colorScheme = darkColorScheme(
+    MaterialTheme(colorScheme = if (darkTheme) darkColorScheme(
         background = Ink, surface = Panel, primary = Purple,
         onBackground = Color.White, onSurface = Color.White, secondary = Mint
+    ) else lightColorScheme(
+        background = Ink, surface = Panel, primary = Purple,
+        onBackground = Color(0xFF19171F), onSurface = Color(0xFF19171F), secondary = Mint
     )) {
         Scaffold(
             containerColor = Ink,
@@ -85,11 +108,16 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                             Text("GESTOR DE ADDONS", fontSize = 10.sp, color = Muted, letterSpacing = 2.sp)
                         }
                     },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Ink)
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Ink),
+                    actions = {
+                        IconButton(onClick = { showSettings = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Ajustes", tint = Purple)
+                        }
+                    }
                 )
             },
             floatingActionButton = {
-                FloatingActionButton(onClick = { if (accounts.isEmpty()) showLogin = true else showAddAddon = true }, containerColor = Purple, contentColor = Ink) {
+                FloatingActionButton(onClick = { if (accounts.isEmpty()) showLogin = true else showAddAddon = true }, containerColor = Purple, contentColor = if (darkTheme) Ink else Color.White) {
                     Icon(Icons.Default.Add, contentDescription = if (accounts.isEmpty()) "Conectar cuenta de Stremio" else "Añadir addon")
                 }
             }
@@ -109,7 +137,7 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text("Tus cuentas, en un solo sitio", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                                    Text("${accounts.size} cuenta(s) conectada(s)", color = Muted, fontSize = 12.sp)
+                                    Text("${accounts.size} ${if (accounts.size == 1) "cuenta conectada" else "cuentas conectadas"}", color = Muted, fontSize = 12.sp)
                                 }
                             }
                             Text("Cuenta de origen", color = Muted, fontSize = 12.sp)
@@ -139,7 +167,7 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                                 enabled = !busy && accounts.size > 1 && selectedTargets.any { it != sourceId },
                                 modifier = Modifier.fillMaxWidth().height(52.dp),
                                 shape = RoundedCornerShape(15.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Purple, contentColor = Ink)
+                                colors = ButtonDefaults.buttonColors(containerColor = Purple, contentColor = if (darkTheme) Ink else Color.White)
                             ) {
                                 if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                                 else Icon(Icons.Default.CloudSync, null)
@@ -172,7 +200,7 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                                     onCheckedChange = { checked -> selectedTargets = if (checked) selectedTargets + account.id else selectedTargets - account.id },
                                     colors = CheckboxDefaults.colors(checkedColor = Purple, uncheckedColor = Muted)
                                 )
-                                Box(Modifier.size(42.dp).background(Color(0xFF2B2B42), CircleShape), contentAlignment = Alignment.Center) {
+                                Box(Modifier.size(42.dp).background(if (darkTheme) Color(0xFF2B2B42) else Color(0xFFEAE5F4), CircleShape), contentAlignment = Alignment.Center) {
                                     Text(account.name.take(1).uppercase(), color = Purple, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                                 }
                                 Spacer(Modifier.width(12.dp))
@@ -197,13 +225,13 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                     }
                 }
                 item {
-                    Surface(color = Color(0xFF202A2B), shape = RoundedCornerShape(16.dp)) {
+                    Surface(color = if (darkTheme) Color(0xFF202A2B) else Color(0xFFE8F4F0), shape = RoundedCornerShape(16.dp)) {
                         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
                             Icon(Icons.Default.Security, null, tint = Mint)
                             Spacer(Modifier.width(10.dp))
                             Column {
                                 Text("Sesiones protegidas", fontWeight = FontWeight.SemiBold, color = Mint)
-                                Text("La contraseña solo se usa para iniciar sesión y no se guarda. El token de sesión se cifra con Android Keystore en este dispositivo.", color = Color(0xFFCBD5D7), fontSize = 12.sp)
+                                Text("La contraseña solo se usa para iniciar sesión y no se guarda. El token de sesión se cifra con Android Keystore en este dispositivo.", color = if (darkTheme) Color(0xFFCBD5D7) else Color(0xFF34413D), fontSize = 12.sp)
                             }
                         }
                     }
@@ -313,7 +341,7 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                     Text("Origen: ${pending.source.email}", fontWeight = FontWeight.SemiBold)
                     Text("La operación reemplazará la lista completa de addons de estos destinos. Los addons que solo existan en un destino se quitarán.", color = Muted, fontSize = 13.sp)
                     pending.targets.forEach { target ->
-                        Surface(color = Color(0xFF292D3A), shape = RoundedCornerShape(12.dp)) {
+                        Surface(color = if (darkTheme) Color(0xFF292D3A) else Color(0xFFF0EEF6), shape = RoundedCornerShape(12.dp)) {
                             Column(Modifier.fillMaxWidth().padding(10.dp)) {
                                 Text(target.account.email, fontWeight = FontWeight.SemiBold)
                                 Text("Añadir: ${target.additions} · Quitar: ${target.removals} · Quedarán: ${pending.sourceAddons.size}", color = Muted, fontSize = 12.sp)
@@ -353,7 +381,7 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                 if (collection.addons.isEmpty()) Text("Esta cuenta no devolvió addons instalados.")
                 else LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(collection.addons) { addon ->
-                        Surface(color = Color(0xFF292D3A), shape = RoundedCornerShape(12.dp)) {
+                        Surface(color = if (darkTheme) Color(0xFF292D3A) else Color(0xFFF0EEF6), shape = RoundedCornerShape(12.dp)) {
                             Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f).padding(vertical = 10.dp)) {
                                     Text(addon.name.ifBlank { "Addon sin nombre" }, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -391,4 +419,35 @@ private fun StremioFamilyApp(repository: AccountRepository) {
             dismissButton = { TextButton(enabled = !busy, onClick = { pendingRemove = null }) { Text("Cancelar") } }
         )
     }
+
+        if (showSettings) {
+            ModalBottomSheet(
+                onDismissRequest = { showSettings = false },
+                containerColor = Panel,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 22.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(18.dp)
+                ) {
+                    Text("Ajustes", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text("Personaliza la app y revisa cómo se protegen tus cuentas.", color = Muted, fontSize = 14.sp)
+                    HorizontalDivider(color = Muted.copy(alpha = .2f))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Tema oscuro", fontWeight = FontWeight.SemiBold)
+                            Text("Usar una apariencia oscura", color = Muted, fontSize = 12.sp)
+                        }
+                        Switch(checked = darkTheme, onCheckedChange = { enabled ->
+                            darkTheme = enabled
+                            context.getSharedPreferences("preferences", 0).edit().putBoolean("dark_theme", enabled).apply()
+                        })
+                    }
+                    SettingsInfo(Icons.Default.Security, "Sesiones protegidas", "Las contraseñas no se guardan. Los tokens de sesión se cifran en este dispositivo.", Mint)
+                    SettingsInfo(Icons.Default.CloudSync, "Sincronización", "La vista previa muestra qué addons se añadirán o quitarán. Aplicar reemplaza la lista completa de cada cuenta de destino.", Purple)
+                    SettingsInfo(Icons.Default.Extension, "Añadir y actualizar", "Pega la URL del manifiesto del addon. La app lo instala en la cuenta de origen seleccionada y vuelve a cargar la lista.", Purple)
+                    Text("Stremio Family Manager · 0.3.0", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 16.dp))
+                }
+            }
+        }
 }
