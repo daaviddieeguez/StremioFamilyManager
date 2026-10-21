@@ -9,6 +9,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.net.URI
 import java.util.concurrent.TimeUnit
 
 data class StremioSession(val authKey: String, val userId: String, val email: String)
@@ -50,15 +51,44 @@ class StremioApi(
         AddonCollection(addons, result.optString("lastModified").takeIf { it.isNotBlank() })
     }
 
-    /** Adds or refreshes an addon from its manifest URL using Stremio\'s collection API. */
-    suspend fun addAddonFromUrl(authKey: String, manifestUrl: String) = withContext(Dispatchers.IO) {
+    /** Fetches the addon's manifest, then writes and verifies its descriptor in Stremio. */
+    suspend fun addAddonFromUrl(authKey: String, manifestUrl: String): AddonCollection = withContext(Dispatchers.IO) {
         val normalized = manifestUrl.trim()
-        require(normalized.startsWith("https://") || normalized.startsWith("http://")) {
-            "Introduce una URL http(s) válida del manifiesto del addon."
+        val uri = try { URI(normalized) } catch (_: Exception) { null }
+        val scheme = uri?.scheme?.lowercase()
+        val host = uri?.host?.lowercase()
+        require(uri != null && (scheme == "https" || (scheme == "http" && (host == "127.0.0.1" || host == "localhost")))) {
+            "Usa la URL HTTPS del manifiesto (HTTP solo se permite en localhost)."
         }
-        request("addonCollectionGet", authKey, JSONObject()
-            .put("update", true)
-            .put("addFromURL", JSONArray().put(normalized)))
+
+        val manifestResponse = try {
+            client.newCall(Request.Builder().url(normalized).get().header("Accept", "application/json").build()).execute()
+        } catch (_: IOException) {
+            throw StremioApiException("No se pudo descargar el manifiesto. Comprueba la URL y la conexión.")
+        }
+        val manifest = manifestResponse.use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw StremioApiException("El servidor del addon respondió con el código ${response.code}.")
+            try { JSONObject(text) } catch (_: Exception) { throw StremioApiException("La URL no devolvió un manifiesto JSON válido.") }
+        }
+        if (manifest.optString("id").isBlank() || manifest.optString("name").isBlank() || manifest.optString("version").isBlank()) {
+            throw StremioApiException("El manifiesto debe incluir id, name y version.")
+        }
+
+        val current = getAddonCollection(authKey).addons.toMutableList()
+        val descriptor = AddonDescriptor(JSONObject()
+            .put("transportUrl", normalized)
+            .put("manifest", manifest)
+            .put("flags", JSONObject()))
+        val existingIndex = current.indexOfFirst { it.transportUrl == normalized }
+        if (existingIndex >= 0) current[existingIndex] = descriptor else current.add(descriptor)
+        setAddonCollection(authKey, current)
+
+        val verified = getAddonCollection(authKey)
+        if (verified.addons.none { it.transportUrl == normalized && it.value.optJSONObject("manifest")?.optString("id") == manifest.optString("id") }) {
+            throw StremioApiException("Stremio no confirmó la instalación del addon. Actualiza la lista e inténtalo de nuevo.")
+        }
+        verified
     }
 
     suspend fun setAddonCollection(authKey: String, addons: List<AddonDescriptor>) = withContext(Dispatchers.IO) {
