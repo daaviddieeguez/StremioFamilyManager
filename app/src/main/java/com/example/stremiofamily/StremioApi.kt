@@ -50,6 +50,17 @@ class StremioApi(
         AddonCollection(addons, result.optString("lastModified").takeIf { it.isNotBlank() })
     }
 
+    /** Adds or refreshes an addon from its manifest URL using Stremio\'s collection API. */
+    suspend fun addAddonFromUrl(authKey: String, manifestUrl: String) = withContext(Dispatchers.IO) {
+        val normalized = manifestUrl.trim()
+        require(normalized.startsWith("https://") || normalized.startsWith("http://")) {
+            "Introduce una URL http(s) válida del manifiesto del addon."
+        }
+        request("addonCollectionGet", authKey, JSONObject()
+            .put("update", true)
+            .put("addFromURL", JSONArray().put(normalized)))
+    }
+
     suspend fun setAddonCollection(authKey: String, addons: List<AddonDescriptor>) = withContext(Dispatchers.IO) {
         val array = JSONArray()
         addons.forEach { array.put(JSONObject(it.value.toString())) }
