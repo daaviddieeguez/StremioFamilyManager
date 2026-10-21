@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PeopleAlt
 import androidx.compose.material.icons.filled.PersonAddAlt
 import androidx.compose.material.icons.filled.Settings
@@ -64,9 +65,10 @@ private fun StremioFamilyApp(repository: AccountRepository) {
     var selectedTargets by remember { mutableStateOf(emptySet<String>()) }
     var sourceId by remember { mutableStateOf(accounts.firstOrNull()?.id.orEmpty()) }
     var showLogin by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableIntStateOf(0) }
     var showAddAddon by remember { mutableStateOf(false) }
     var addonUrl by remember { mutableStateOf("") }
+    var addonInstallError by remember { mutableStateOf("") }
     var showDisconnect by remember { mutableStateOf<SavedAccount?>(null) }
     var preview by remember { mutableStateOf<SyncPreview?>(null) }
     var details by remember { mutableStateOf<Pair<SavedAccount, AddonCollection>?>(null) }
@@ -106,145 +108,170 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                     title = {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("Stremio Family", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                            Text("GESTOR DE ADDONS", fontSize = 10.sp, color = Muted, letterSpacing = 2.sp)
+                            Text(listOf("INICIO", "CUENTAS", "AJUSTES")[selectedTab], fontSize = 10.sp, color = Muted, letterSpacing = 2.sp)
                         }
                     },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Ink),
-                    actions = {
-                        IconButton(onClick = { showSettings = true }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Ajustes", tint = Purple)
-                        }
-                    }
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Ink)
                 )
             },
-            floatingActionButton = {
-                FloatingActionButton(onClick = { if (accounts.isEmpty()) showLogin = true else showAddAddon = true }, containerColor = Purple, contentColor = if (darkTheme) Ink else Color.White) {
-                    Icon(Icons.Default.Add, contentDescription = if (accounts.isEmpty()) "Conectar cuenta de Stremio" else "Añadir addon")
+            bottomBar = {
+                NavigationBar(containerColor = Panel, contentColor = Purple) {
+                    NavigationBarItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Icon(Icons.Default.Home, contentDescription = null) }, label = { Text("Inicio") })
+                    NavigationBarItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Icon(Icons.Default.PeopleAlt, contentDescription = null) }, label = { Text("Cuentas") })
+                    NavigationBarItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Icon(Icons.Default.Settings, contentDescription = null) }, label = { Text("Ajustes") })
                 }
+            },
+            floatingActionButton = {
+                if (selectedTab != 2) FloatingActionButton(
+                    onClick = { if (accounts.isEmpty()) { selectedTab = 1; showLogin = true } else showAddAddon = true },
+                    containerColor = Purple,
+                    contentColor = if (darkTheme) Ink else Color.White
+                ) { Icon(Icons.Default.Add, contentDescription = if (accounts.isEmpty()) "Conectar cuenta" else "Añadir addon") }
             }
         ) { padding ->
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 100.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 12.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                item {
-                    Surface(shape = RoundedCornerShape(24.dp), color = Panel, modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                when (selectedTab) {
+                    0 -> {
+                        item {
+                            Surface(color = Panel, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                                    Text("Todo en orden", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                                    Text("${accounts.size} ${if (accounts.size == 1) "cuenta conectada" else "cuentas conectadas"}", color = Muted)
+                                    if (accounts.isEmpty()) {
+                                        Button(onClick = { selectedTab = 1; showLogin = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                                            Icon(Icons.Default.PersonAddAlt, null); Spacer(Modifier.width(8.dp)); Text("Conectar cuenta")
+                                        }
+                                    } else {
+                                        OutlinedButton(onClick = { selectedTab = 1 }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                                            Icon(Icons.Default.PeopleAlt, null); Spacer(Modifier.width(8.dp)); Text("Ver cuentas")
+                                        }
+                                        Button(onClick = { showAddAddon = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
+                                            Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("Añadir addon")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        item {
+                            Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text("Sincronizar addons", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                                    Box {
+                                        OutlinedButton(onClick = { sourceMenu = true }, enabled = accounts.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+                                            Text(accounts.firstOrNull { it.id == sourceId }?.email ?: "Elige una cuenta de origen", modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text("⌄")
+                                        }
+                                        DropdownMenu(expanded = sourceMenu, onDismissRequest = { sourceMenu = false }) {
+                                            accounts.forEach { account -> DropdownMenuItem(text = { Text(account.email) }, onClick = { sourceId = account.id; sourceMenu = false }) }
+                                        }
+                                    }
+                                    Button(
+                                        onClick = {
+                                            busy = true
+                                            scope.launch {
+                                                try { preview = repository.preview(sourceId, selectedTargets.filter { it != sourceId }) }
+                                                catch (e: Exception) { message = e.message ?: "No se pudo preparar la sincronización." }
+                                                finally { busy = false }
+                                            }
+                                        },
+                                        enabled = !busy && accounts.size > 1 && selectedTargets.any { it != sourceId },
+                                        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
+                                    ) {
+                                        if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                        else Icon(Icons.Default.CloudSync, null)
+                                        Spacer(Modifier.width(8.dp)); Text("Revisar sincronización")
+                                    }
+                                    Text("Elige destinos en la pestaña Cuentas.", color = Muted, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                        if (message.isNotBlank()) item { Text(message, color = Muted, fontSize = 12.sp) }
+                    }
+                    1 -> {
+                        item {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(46.dp).background(Purple.copy(alpha = .16f), CircleShape), contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.CloudSync, null, tint = Purple, modifier = Modifier.size(26.dp))
-                                }
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text("Tus cuentas, en un solo sitio", fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                                    Text("${accounts.size} ${if (accounts.size == 1) "cuenta conectada" else "cuentas conectadas"}", color = Muted, fontSize = 12.sp)
+                                Text("Cuentas", fontWeight = FontWeight.Bold, fontSize = 22.sp, modifier = Modifier.weight(1f))
+                                FilledTonalButton(onClick = { showLogin = true }, enabled = !busy) {
+                                    Icon(Icons.Default.PersonAddAlt, null); Spacer(Modifier.width(6.dp)); Text("Añadir")
                                 }
                             }
-                            Text("Cuenta de origen", color = Muted, fontSize = 12.sp)
-                            Box {
-                                OutlinedButton(onClick = { sourceMenu = true }, enabled = accounts.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-                                    Text(accounts.firstOrNull { it.id == sourceId }?.email ?: "Conecta una cuenta", modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("⌄")
+                        }
+                        if (accounts.isEmpty()) item {
+                            Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("Conecta tu cuenta de Stremio", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                                    Button(onClick = { showLogin = true }, modifier = Modifier.fillMaxWidth()) { Text("Iniciar sesión") }
                                 }
-                                DropdownMenu(expanded = sourceMenu, onDismissRequest = { sourceMenu = false }) {
-                                    accounts.forEach { account ->
-                                        DropdownMenuItem(text = { Text(account.email) }, onClick = { sourceId = account.id; sourceMenu = false })
+                            }
+                        }
+                        items(accounts, key = { it.id }) { account ->
+                            Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = account.id in selectedTargets,
+                                        enabled = account.id != sourceId,
+                                        onCheckedChange = { checked -> selectedTargets = if (checked) selectedTargets + account.id else selectedTargets - account.id },
+                                        colors = CheckboxDefaults.colors(checkedColor = Purple, uncheckedColor = Muted)
+                                    )
+                                    Box(Modifier.size(42.dp).background(if (darkTheme) Color(0xFF2B2B42) else Color(0xFFEAE5F4), CircleShape), contentAlignment = Alignment.Center) {
+                                        Text(account.name.take(1).uppercase(), color = Purple, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(account.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(account.email, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(if (account.id == sourceId) "Origen" else if (account.id in selectedTargets) "Destino seleccionado" else "Toca para incluir en sincronización", color = if (account.id == sourceId) Mint else Muted, fontSize = 10.sp)
+                                    }
+                                    IconButton(enabled = !busy, onClick = {
+                                        busy = true
+                                        scope.launch {
+                                            try { details = account to repository.refresh(account.id) }
+                                            catch (e: Exception) { message = e.message ?: "No se pudieron cargar los addons." }
+                                            finally { busy = false }
+                                        }
+                                    }) { Icon(Icons.Default.Extension, contentDescription = "Ver addons", tint = Purple) }
+                                    IconButton(enabled = !busy, onClick = { showDisconnect = account }) {
+                                        Icon(Icons.Default.DeleteOutline, contentDescription = "Desconectar cuenta", tint = Muted)
                                     }
                                 }
                             }
-                            Button(
-                                onClick = {
-                                    val targets = selectedTargets.filter { it != sourceId }
-                                    busy = true
-                                    scope.launch {
-                                        try {
-                                            preview = repository.preview(sourceId, targets)
-                                            message = "Vista previa lista. No se ha cambiado ninguna cuenta."
-                                        } catch (e: Exception) { message = e.message ?: "No se pudo consultar las listas de addons." }
-                                        finally { busy = false }
+                        }
+                    }
+                    else -> {
+                        item {
+                            Text("Ajustes", fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                        }
+                        item {
+                            Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                                Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text("Tema oscuro", fontWeight = FontWeight.SemiBold)
+                                        Text("Ajusta la apariencia de la app", color = Muted, fontSize = 12.sp)
                                     }
-                                },
-                                enabled = !busy && accounts.size > 1 && selectedTargets.any { it != sourceId },
-                                modifier = Modifier.fillMaxWidth().height(52.dp),
-                                shape = RoundedCornerShape(15.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Purple, contentColor = if (darkTheme) Ink else Color.White)
-                            ) {
-                                if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                                else Icon(Icons.Default.CloudSync, null)
-                                Spacer(Modifier.width(8.dp))
-                                Text("Previsualizar sincronización", fontWeight = FontWeight.Bold)
-                            }
-                            if (accounts.isNotEmpty()) {
-                                OutlinedButton(onClick = { showAddAddon = true }, modifier = Modifier.fillMaxWidth(), enabled = !busy) {
-                                    Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Añadir addon por URL")
-                                }
-                            }
-                            Text("Añadir instala el manifiesto en esta cuenta. Sincronizar replica la lista completa y puede quitar addons exclusivos del destino.", color = Mint, fontSize = 11.sp)
-                        }
-                    }
-                }
-                item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.PeopleAlt, null, tint = Purple)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Cuentas", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { showLogin = true }, enabled = !busy) {
-                            Icon(Icons.Default.PersonAddAlt, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(5.dp))
-                            Text("Conectar")
-                        }
-                    }
-                }
-                items(accounts, key = { it.id }) { account ->
-                    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Checkbox(
-                                    checked = account.id in selectedTargets,
-                                    enabled = account.id != sourceId,
-                                    onCheckedChange = { checked -> selectedTargets = if (checked) selectedTargets + account.id else selectedTargets - account.id },
-                                    colors = CheckboxDefaults.colors(checkedColor = Purple, uncheckedColor = Muted)
-                                )
-                                Box(Modifier.size(42.dp).background(if (darkTheme) Color(0xFF2B2B42) else Color(0xFFEAE5F4), CircleShape), contentAlignment = Alignment.Center) {
-                                    Text(account.name.take(1).uppercase(), color = Purple, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                }
-                                Spacer(Modifier.width(12.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(account.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(account.email, color = Muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(if (account.id == sourceId) "Origen" else "Destino seleccionable", color = if (account.id == sourceId) Mint else Muted, fontSize = 10.sp)
-                                }
-                                IconButton(enabled = !busy, onClick = {
-                                    busy = true
-                                    scope.launch {
-                                        try { details = account to repository.refresh(account.id) }
-                                        catch (e: Exception) { message = e.message ?: "No se pudo leer la lista de addons." }
-                                        finally { busy = false }
-                                    }
-                                }) { Icon(Icons.Default.Extension, contentDescription = "Ver addons", tint = Purple) }
-                                IconButton(enabled = !busy, onClick = { showDisconnect = account }) {
-                                    Icon(Icons.Default.DeleteOutline, contentDescription = "Desconectar cuenta", tint = Muted)
+                                    Switch(checked = darkTheme, onCheckedChange = { enabled ->
+                                        darkTheme = enabled
+                                        context.getSharedPreferences("preferences", 0).edit().putBoolean("dark_theme", enabled).apply()
+                                    })
                                 }
                             }
                         }
-                    }
-                }
-                item {
-                    Surface(color = if (darkTheme) Color(0xFF202A2B) else Color(0xFFE8F4F0), shape = RoundedCornerShape(16.dp)) {
-                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-                            Icon(Icons.Default.Security, null, tint = Mint)
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Text("Sesiones protegidas", fontWeight = FontWeight.SemiBold, color = Mint)
-                                Text("La contraseña solo se usa para iniciar sesión y no se guarda. El token de sesión se cifra con Android Keystore en este dispositivo.", color = if (darkTheme) Color(0xFFCBD5D7) else Color(0xFF34413D), fontSize = 12.sp)
+                        item {
+                            Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    SettingsInfo(Icons.Default.Security, "Privacidad", "La contraseña no se guarda y la sesión se cifra en este dispositivo.", Mint)
+                                    HorizontalDivider(color = Muted.copy(alpha = .2f))
+                                    SettingsInfo(Icons.Default.CloudSync, "Sincronización", "La vista previa te enseña qué se añadirá y quitará antes de aplicar cambios.", Purple)
+                                }
                             }
                         }
+                        item {
+                            Text("Stremio Family Manager · 0.3.0", color = Muted, fontSize = 12.sp)
+                        }
                     }
-                }
-                item {
-                    Text(message, color = Muted, fontSize = 12.sp)
-                    Text("Stremio Family Manager · beta", color = Color(0xFF555B6C), fontSize = 11.sp)
                 }
             }
         }
@@ -253,12 +280,13 @@ private fun StremioFamilyApp(repository: AccountRepository) {
     if (showAddAddon) {
         AlertDialog(
             onDismissRequest = { if (!busy) showAddAddon = false },
-            title = { Text("Añadir o actualizar addon") },
+            title = { Text("Añadir addon") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Pega la URL del manifiesto. Stremio la validará y añadirá a la cuenta seleccionada.", color = Muted, fontSize = 13.sp)
+                    Text("La URL debe abrir el manifiesto JSON del addon.", color = Muted, fontSize = 13.sp)
                     OutlinedTextField(value = accounts.firstOrNull { it.id == sourceId }?.email.orEmpty(), onValueChange = {}, readOnly = true, label = { Text("Cuenta") }, enabled = accounts.isNotEmpty())
-                    OutlinedTextField(value = addonUrl, onValueChange = { addonUrl = it.trim() }, label = { Text("URL del manifiesto") }, placeholder = { Text("https://addon.example/manifest.json") }, singleLine = true, enabled = !busy)
+                    OutlinedTextField(value = addonUrl, onValueChange = { addonUrl = it.trim(); addonInstallError = "" }, label = { Text("URL del manifiesto") }, placeholder = { Text("https://…/manifest.json") }, singleLine = true, enabled = !busy)
+                    if (addonInstallError.isNotBlank()) Text(addonInstallError, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                 }
             },
             confirmButton = {
@@ -268,12 +296,13 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                         try {
                             val fresh = repository.addAddon(sourceId, addonUrl)
                             details = (accounts.first { it.id == sourceId }) to fresh
-                            message = "Addon añadido o actualizado en ${accounts.first { it.id == sourceId }.email}."
-                            addonUrl = ""; showAddAddon = false
-                        } catch (e: Exception) { message = e.message ?: "No se pudo instalar el addon." }
+                            selectedTab = 1
+                            message = "Addon guardado en la cuenta."
+                            addonUrl = ""; addonInstallError = ""; showAddAddon = false
+                        } catch (e: Exception) { addonInstallError = e.message ?: "No se pudo instalar el addon." }
                         finally { busy = false }
                     }
-                }) { Text(if (busy) "Instalando…" else "Instalar / actualizar") }
+                }) { Text(if (busy) "Instalando…" else "Instalar") }
             },
             dismissButton = { TextButton(enabled = !busy, onClick = { showAddAddon = false }) { Text("Cancelar") } }
         )
@@ -426,39 +455,4 @@ private fun StremioFamilyApp(repository: AccountRepository) {
         )
     }
 
-        if (showSettings) {
-            ModalBottomSheet(
-                onDismissRequest = { showSettings = false },
-                containerColor = Panel,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ) {
-                Column(
-                    Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 22.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp)
-                ) {
-                    Text("Ajustes", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                    Text("Personaliza la app y revisa cómo se protegen tus cuentas.", color = Muted, fontSize = 14.sp)
-                    HorizontalDivider(color = Muted.copy(alpha = .2f))
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Tema oscuro", fontWeight = FontWeight.SemiBold)
-                            Text("Usar una apariencia oscura", color = Muted, fontSize = 12.sp)
-                        }
-                        Switch(checked = darkTheme, onCheckedChange = { enabled ->
-                            darkTheme = enabled
-                            context.getSharedPreferences("preferences", 0).edit().putBoolean("dark_theme", enabled).apply()
-                        })
-                    }
-                    SettingsInfo(Icons.Default.Security, "Sesiones protegidas", "Las contraseñas no se guardan. Los tokens de sesión se cifran en este dispositivo.", Mint)
-                    SettingsInfo(Icons.Default.CloudSync, "Sincronización", "La vista previa muestra qué addons se añadirán o quitarán. Aplicar reemplaza la lista completa de cada cuenta de destino.", Purple)
-                    SettingsInfo(Icons.Default.Extension, "Añadir y actualizar", "Pega la URL del manifiesto del addon. La app lo instala en la cuenta de origen seleccionada y vuelve a cargar la lista.", Purple)
-                    OutlinedButton(onClick = { showSettings = false; showLogin = true }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Default.PersonAddAlt, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Conectar otra cuenta")
-                    }
-                    Text("Stremio Family Manager · 0.3.0", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 16.dp))
-                }
-            }
-        }
 }
