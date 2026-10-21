@@ -56,6 +56,7 @@ private fun StremioFamilyApp(repository: AccountRepository) {
     var loginName by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var loginError by remember { mutableStateOf("") }
     var sourceMenu by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("Conecta tus cuentas de Stremio para consultar y sincronizar sus addons.") }
@@ -214,8 +215,9 @@ private fun StremioFamilyApp(repository: AccountRepository) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(value = loginName, onValueChange = { loginName = it }, label = { Text("Nombre para identificarla") }, singleLine = true, enabled = !busy)
-                    OutlinedTextField(value = email, onValueChange = { email = it }, label = { Text("Correo") }, singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
+                    OutlinedTextField(value = email, onValueChange = { email = it; loginError = "" }, label = { Text("Correo") }, singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
                     OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Contraseña de Stremio") }, singleLine = true, enabled = !busy, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+                    if (loginError.isNotBlank()) Text(loginError, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                     Text("La contraseña se envía directamente a la API de Stremio por HTTPS y no se guarda en el teléfono ni se muestra en registros.", color = Muted, fontSize = 12.sp)
                 }
             },
@@ -234,7 +236,7 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                             if (sourceId.isBlank()) sourceId = account.id
                             message = "Cuenta ${account.email} conectada."
                             email = ""; loginName = ""; showLogin = false
-                        } catch (e: Exception) { message = e.message ?: "No se pudo iniciar sesión." }
+                        } catch (e: Exception) { loginError = e.message ?: "No se pudo iniciar sesión." }
                         finally { busy = false }
                     }
                 }) { Text(if (busy) "Conectando…" else "Iniciar sesión") }
@@ -252,10 +254,12 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                 TextButton(onClick = {
                     showDisconnect = null; busy = true
                     scope.launch {
-                        repository.disconnect(account.id)
-                        reloadAccounts()
-                        message = "Cuenta desconectada de este dispositivo."
-                        busy = false
+                        try {
+                            repository.disconnect(account.id)
+                            reloadAccounts()
+                            message = "Cuenta desconectada de este dispositivo."
+                        } catch (e: Exception) { message = e.message ?: "No se pudo desconectar la cuenta." }
+                        finally { busy = false }
                     }
                 }) { Text("Desconectar") }
             },
@@ -289,6 +293,9 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                             val results = repository.apply(pending)
                             message = "Sincronización completada: ${results.size} cuenta(s) actualizada(s)."
                             preview = null
+                        } catch (e: StalePreviewException) {
+                            preview = null
+                            message = e.message ?: "La lista cambió. Genera una nueva vista previa."
                         } catch (e: PartialSyncException) {
                             message = "Se actualizaron ${e.completed.size} cuenta(s); se detuvo el proceso. ${e.cause?.message ?: "Error de red."}"
                             preview = null
