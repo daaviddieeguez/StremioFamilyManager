@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.PeopleAlt
+import androidx.compose.material.icons.filled.PersonAddAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.*
@@ -187,7 +188,12 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.PeopleAlt, null, tint = Purple)
                         Spacer(Modifier.width(8.dp))
-                        Text("Cuentas familiares", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("Cuentas", fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { showLogin = true }, enabled = !busy) {
+                            Icon(Icons.Default.PersonAddAlt, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("Conectar")
+                        }
                     }
                 }
                 items(accounts, key = { it.id }) { account ->
@@ -446,6 +452,11 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                     SettingsInfo(Icons.Default.Security, "Sesiones protegidas", "Las contraseñas no se guardan. Los tokens de sesión se cifran en este dispositivo.", Mint)
                     SettingsInfo(Icons.Default.CloudSync, "Sincronización", "La vista previa muestra qué addons se añadirán o quitarán. Aplicar reemplaza la lista completa de cada cuenta de destino.", Purple)
                     SettingsInfo(Icons.Default.Extension, "Añadir y actualizar", "Pega la URL del manifiesto del addon. La app lo instala en la cuenta de origen seleccionada y vuelve a cargar la lista.", Purple)
+                    OutlinedButton(onClick = { showSettings = false; showLogin = true }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.PersonAddAlt, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Conectar otra cuenta")
+                    }
                     Text("Stremio Family Manager · 0.3.0", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(bottom = 16.dp))
                 }
             }
