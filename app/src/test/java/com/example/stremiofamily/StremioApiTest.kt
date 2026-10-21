@@ -48,6 +48,17 @@ class StremioApiTest {
         assertEquals("https://example.org/manifest.json", collection.addons.single().transportUrl)
     }
 
+    @Test fun installsOrRefreshesAddonThroughCollectionAddFromUrlContract() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"result":{"addons":[]}}"""))
+        api.addAddonFromUrl("session-123", "https://example.org/manifest.json")
+        val request = server.takeRequest()
+        assertEquals("/api/addonCollectionGet", request.path)
+        val body = JSONObject(request.body.readUtf8())
+        assertEquals("session-123", body.getString("authKey"))
+        assertTrue(body.getBoolean("update"))
+        assertEquals("https://example.org/manifest.json", body.getJSONArray("addFromURL").getString(0))
+    }
+
     @Test fun writesWholeDescriptorCollectionWithoutDroppingFields() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"result":true}"""))
         val descriptor = AddonDescriptor(JSONObject("""{"transportUrl":"https://x/manifest.json","manifest":{"id":"id","name":"X"},"flags":{"pinned":true},"extra":"kept"}"""))
