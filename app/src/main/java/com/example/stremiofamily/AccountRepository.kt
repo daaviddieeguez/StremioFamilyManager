@@ -39,8 +39,7 @@ class AccountRepository(
     suspend fun refresh(accountId: String): AddonCollection = api.getAddonCollection(requireToken(accountId))
     suspend fun addAddon(accountId: String, manifestUrl: String): AddonCollection {
         val token = requireToken(accountId)
-        api.addAddonFromUrl(token, manifestUrl)
-        return api.getAddonCollection(token)
+        return api.addAddonFromUrl(token, manifestUrl)
     }
 
     /** Removes one descriptor; Stremio exposes collection writes as full-list replacement. */
