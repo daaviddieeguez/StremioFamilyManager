@@ -216,7 +216,7 @@ private fun StremioFamilyApp(repository: AccountRepository) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(value = loginName, onValueChange = { loginName = it }, label = { Text("Nombre para identificarla") }, singleLine = true, enabled = !busy)
                     OutlinedTextField(value = email, onValueChange = { email = it; loginError = "" }, label = { Text("Correo") }, singleLine = true, enabled = !busy, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
-                    OutlinedTextField(value = password, onValueChange = { password = it }, label = { Text("Contraseña de Stremio") }, singleLine = true, enabled = !busy, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+                    OutlinedTextField(value = password, onValueChange = { password = it; loginError = "" }, label = { Text("Contraseña de Stremio") }, singleLine = true, enabled = !busy, visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
                     if (loginError.isNotBlank()) Text(loginError, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
                     Text("La contraseña se envía directamente a la API de Stremio por HTTPS y no se guarda en el teléfono ni se muestra en registros.", color = Muted, fontSize = 12.sp)
                 }
